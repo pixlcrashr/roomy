@@ -1,0 +1,23 @@
+name: roomy-dev
+
+services:
+  db:
+    image: postgres
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Berlin
+      POSTGRES_DB: roomy
+      POSTGRES_USER: roomy
+      POSTGRES_PASSWORD: roomy
+    ports:
+      - 127.0.0.1:5796:5432
+  db-test:
+    image: postgres
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Berlin
+      POSTGRES_DB: roomy
+      POSTGRES_USER: roomy
+      POSTGRES_PASSWORD: roomy
+    ports:
+      - 127.0.0.1:5797:5432

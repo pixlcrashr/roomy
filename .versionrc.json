@@ -1,0 +1,6 @@
+{
+    "commitUrlFormat": "{{host}}/pixlcrashr/roomy/commit/{{hash}}",
+    "compareUrlFormat": "{{host}}/pixlcrashr/roomy/compare/{{previousTag}}...{{currentTag}}",
+    "issueUrlFormat": "{{host}}/pixlcrashr/roomy/issues/{{id}}",
+    "userUrlFormat": "{{host}}/{{user}}"
+}

@@ -1,0 +1,4004 @@
+openapi: 3.0.3
+info:
+  title: Roomy API
+  description: |
+    Room/place reservation and management system API.
+
+    ## Availability Model
+
+    The system uses a **blocking-based availability model**:
+    - **Default state**: Everything is available 24/7
+    - **Blocking periods**: Define when something is NOT available
+    - **Availability** = All time − Blocking periods − Existing reservations
+
+    ### Blocking Inheritance
+
+    Blocking periods cascade down the hierarchy:
+    - **Building blocking** → Applies to all areas and places in the building
+    - **Area blocking** → Applies to all places in the area
+    - **Place blocking** → Applies only to that specific place
+
+  version: 1.0.0
+  license:
+    name: GPL-3.0
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+  contact:
+    name: Roomy Support
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Buildings
+    description: Building management
+  - name: Areas
+    description: Area management
+  - name: Places
+    description: Place management
+  - name: Reservations
+    description: Reservation management
+  - name: Users
+    description: User management
+  - name: Groups
+    description: Permission groups management
+  - name: Equipment
+    description: Equipment/amenities management
+  - name: Statistics
+    description: Usage statistics
+  - name: QR Templates
+    description: QR code template management
+  - name: API Keys
+    description: API key management
+  - name: Audit Log
+    description: Audit log access
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+  # ============================================================================
+  # Authentication
+  # ============================================================================
+  /auth/login:
+    get:
+      tags: [Auth]
+      summary: Initiate GitLab OAuth flow
+      description: Redirects to GitLab authorization URL
+      operationId: initiateOAuthLogin
+      security: []
+      responses:
+        '302':
+          description: Redirect to GitLab authorization URL
+
+  /auth/callback:
+    get:
+      tags: [Auth]
+      summary: OAuth callback handler
+      description: Handles the OAuth callback from GitLab
+      operationId: handleOAuthCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: Authorization code from GitLab
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: CSRF protection state
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New tokens generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Invalidate current session
+      operationId: logout
+      responses:
+        '204':
+          description: Session invalidated
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================================
+  # Buildings
+  # ============================================================================
+  /buildings:
+    get:
+      tags: [Buildings]
+      summary: List all buildings
+      operationId: listBuildings
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: search
+          in: query
+          description: Search by name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of buildings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBuildingList'
+
+    post:
+      tags: [Buildings]
+      summary: Create a new building
+      operationId: createBuilding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBuildingRequest'
+      responses:
+        '201':
+          description: Building created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /buildings/{buildingId}:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    get:
+      tags: [Buildings]
+      summary: Get building details
+      operationId: getBuilding
+      security: []
+      responses:
+        '200':
+          description: Building details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Buildings]
+      summary: Update building
+      operationId: updateBuilding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBuildingRequest'
+      responses:
+        '200':
+          description: Building updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Buildings]
+      summary: Delete building
+      operationId: deleteBuilding
+      responses:
+        '204':
+          description: Building deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/blocking:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    get:
+      tags: [Buildings]
+      summary: Get building blocking periods
+      description: |
+        Returns all blocking periods for this building.
+        These blocking periods cascade to all areas and places within the building.
+      operationId: getBuildingBlocking
+      security: []
+      parameters:
+        - name: includeRecurring
+          in: query
+          description: Expand recurring rules for date range
+          schema:
+            type: boolean
+            default: false
+        - name: startDate
+          in: query
+          description: Start date for expanding recurring rules
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: End date for expanding recurring rules
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Building blocking periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Buildings]
+      summary: Replace all building blocking periods
+      operationId: replaceBuildingBlocking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockings]
+              properties:
+                blockings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '200':
+          description: Blocking periods replaced
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/blocking/entries:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    post:
+      tags: [Buildings]
+      summary: Add blocking periods to building
+      operationId: addBuildingBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '201':
+          description: Blocking periods added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Buildings]
+      summary: Remove blocking periods by IDs
+      operationId: removeBuildingBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockingIds]
+              properties:
+                blockingIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Blocking periods removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/areas:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    get:
+      tags: [Buildings]
+      summary: List areas in building
+      operationId: listBuildingAreas
+      security: []
+      responses:
+        '200':
+          description: List of areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Area'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/availability:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    get:
+      tags: [Buildings]
+      summary: Get available time slots for building
+      description: |
+        Returns time slots that are NOT blocked for the building.
+        Useful for seeing when the building is open/operational.
+      operationId: getBuildingAvailability
+      security: []
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Available time ranges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeRange'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/calendar.ics:
+    parameters:
+      - $ref: '#/components/parameters/BuildingIdParam'
+    get:
+      tags: [Buildings]
+      summary: Public iCalendar feed for building
+      description: Returns .ics file with blocking periods and reservations for all places (next 3 months)
+      operationId: getBuildingCalendar
+      security: []
+      responses:
+        '200':
+          description: iCalendar feed
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # Areas
+  # ============================================================================
+  /areas:
+    get:
+      tags: [Areas]
+      summary: List all areas
+      operationId: listAreas
+      security: []
+      parameters:
+        - name: buildingId
+          in: query
+          description: Filter by building
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of areas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAreaList'
+
+    post:
+      tags: [Areas]
+      summary: Create a new area
+      operationId: createArea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAreaRequest'
+      responses:
+        '201':
+          description: Area created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Area'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /areas/{areaId}:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: Get area details
+      operationId: getArea
+      security: []
+      responses:
+        '200':
+          description: Area details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Area'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Areas]
+      summary: Update area
+      operationId: updateArea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAreaRequest'
+      responses:
+        '200':
+          description: Area updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Area'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Areas]
+      summary: Delete area
+      operationId: deleteArea
+      responses:
+        '204':
+          description: Area deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/roomPlan:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: Get room plan data
+      operationId: getAreaRoomPlan
+      security: []
+      responses:
+        '200':
+          description: Room plan data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomPlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Areas]
+      summary: Update room plan
+      operationId: updateAreaRoomPlan
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Room plan image file
+                markers:
+                  type: string
+                  description: JSON array of PlaceMarker objects
+      responses:
+        '200':
+          description: Room plan updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Areas]
+      summary: Delete room plan
+      operationId: deleteAreaRoomPlan
+      responses:
+        '204':
+          description: Room plan deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/roomPlan/markers:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    post:
+      tags: [Areas]
+      summary: Add place markers to room plan
+      operationId: addAreaRoomPlanMarkers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [markers]
+              properties:
+                markers:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreatePlaceMarkerRequest'
+      responses:
+        '201':
+          description: Markers added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlaceMarker'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Areas]
+      summary: Remove place markers by IDs
+      operationId: removeAreaRoomPlanMarkers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [markerIds]
+              properties:
+                markerIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Markers removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/blocking:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: Get area blocking periods
+      description: |
+        Returns blocking periods defined at the area level.
+        Use includeInherited=true to also see blocking inherited from the building.
+      operationId: getAreaBlocking
+      security: []
+      parameters:
+        - name: includeInherited
+          in: query
+          description: Include blocking inherited from building
+          schema:
+            type: boolean
+            default: false
+        - name: includeRecurring
+          in: query
+          description: Expand recurring rules for date range
+          schema:
+            type: boolean
+            default: false
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Area blocking periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Areas]
+      summary: Replace all area blocking periods
+      operationId: replaceAreaBlocking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockings]
+              properties:
+                blockings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '200':
+          description: Blocking periods replaced
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/blocking/entries:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    post:
+      tags: [Areas]
+      summary: Add blocking periods to area
+      operationId: addAreaBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '201':
+          description: Blocking periods added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Areas]
+      summary: Remove blocking periods by IDs
+      operationId: removeAreaBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockingIds]
+              properties:
+                blockingIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Blocking periods removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/places:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: List places in area
+      operationId: listAreaPlaces
+      security: []
+      responses:
+        '200':
+          description: List of places
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Place'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/availability:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: Get availability summary for all places in area
+      description: |
+        Returns availability status for each place in the area within the given time range.
+        Availability is calculated as: time slots NOT blocked (from place, area, or building)
+        AND NOT reserved. Optimized for room plan visualization.
+      operationId: getAreaAvailability
+      security: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: startTime
+          in: query
+          schema:
+            type: string
+            format: time
+        - name: endTime
+          in: query
+          schema:
+            type: string
+            format: time
+      responses:
+        '200':
+          description: Place availability summary
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlaceAvailability'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /areas/{areaId}/calendar.ics:
+    parameters:
+      - $ref: '#/components/parameters/AreaIdParam'
+    get:
+      tags: [Areas]
+      summary: Public iCalendar feed for area
+      description: Returns .ics file with blocking periods and reservations for all places in area (next 3 months)
+      operationId: getAreaCalendar
+      security: []
+      responses:
+        '200':
+          description: iCalendar feed
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # Places
+  # ============================================================================
+  /places:
+    get:
+      tags: [Places]
+      summary: List/search places
+      operationId: listPlaces
+      security: []
+      parameters:
+        - name: areaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: buildingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: equipment
+          in: query
+          description: Filter by equipment IDs (comma-separated)
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          style: form
+          explode: false
+        - name: minCapacity
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: available
+          in: query
+          description: Filter by availability
+          schema:
+            type: boolean
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: startTime
+          in: query
+          schema:
+            type: string
+            format: time
+        - name: endTime
+          in: query
+          schema:
+            type: string
+            format: time
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of places
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPlaceList'
+
+    post:
+      tags: [Places]
+      summary: Create a new place
+      operationId: createPlace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlaceRequest'
+      responses:
+        '201':
+          description: Place created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /places/{placeId}:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get place details
+      operationId: getPlace
+      security: []
+      responses:
+        '200':
+          description: Place details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Places]
+      summary: Update place
+      operationId: updatePlace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlaceRequest'
+      responses:
+        '200':
+          description: Place updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Place'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Places]
+      summary: Delete place
+      operationId: deletePlace
+      responses:
+        '204':
+          description: Place deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/constraints:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get place constraints
+      operationId: getPlaceConstraints
+      security: []
+      responses:
+        '200':
+          description: Place constraints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceConstraints'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Places]
+      summary: Update place constraints
+      operationId: updatePlaceConstraints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceConstraints'
+      responses:
+        '200':
+          description: Constraints updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceConstraints'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/timeSlots:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get configured time slot intervals
+      description: |
+        Returns the booking grid configuration for this place.
+        Reservations must start and end on these interval boundaries.
+        This does NOT define availability - blocking periods define unavailability.
+      operationId: getPlaceTimeSlots
+      security: []
+      responses:
+        '200':
+          description: Time slot configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSlotConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Places]
+      summary: Update time slot configuration
+      operationId: updatePlaceTimeSlots
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeSlotConfig'
+      responses:
+        '200':
+          description: Time slot configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSlotConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/equipment:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get place equipment/amenities
+      operationId: getPlaceEquipment
+      security: []
+      responses:
+        '200':
+          description: Place equipment
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Equipment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Places]
+      summary: Add equipment to place
+      operationId: addPlaceEquipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [equipmentIds]
+              properties:
+                equipmentIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Equipment added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Equipment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Places]
+      summary: Remove equipment from place
+      operationId: removePlaceEquipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [equipmentIds]
+              properties:
+                equipmentIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Equipment removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/whitelist:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get user whitelist
+      operationId: getPlaceWhitelist
+      responses:
+        '200':
+          description: Whitelist users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserReference'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Places]
+      summary: Add users to whitelist
+      operationId: addPlaceWhitelistUsers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userIds]
+              properties:
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Users added to whitelist
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserReference'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Places]
+      summary: Remove users from whitelist
+      operationId: removePlaceWhitelistUsers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userIds]
+              properties:
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Users removed from whitelist
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/blocking:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get place blocking periods
+      description: |
+        Returns blocking periods for this place.
+        Use includeInherited=true to see blocking inherited from area and building.
+        Blocking = times when the place is NOT available.
+      operationId: getPlaceBlocking
+      security: []
+      parameters:
+        - name: includeInherited
+          in: query
+          description: Include blocking inherited from area and building
+          schema:
+            type: boolean
+            default: false
+        - name: includeRecurring
+          in: query
+          description: Expand recurring rules for date range
+          schema:
+            type: boolean
+            default: false
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Place blocking periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Places]
+      summary: Replace all place blocking periods
+      operationId: replacePlaceBlocking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockings]
+              properties:
+                blockings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '200':
+          description: Blocking periods replaced
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/blocking/entries:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    post:
+      tags: [Places]
+      summary: Add blocking periods to place
+      operationId: addPlaceBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CreateBlockingRequest'
+      responses:
+        '201':
+          description: Blocking periods added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Blocking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Places]
+      summary: Remove blocking periods by IDs
+      operationId: removePlaceBlockingEntries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blockingIds]
+              properties:
+                blockingIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Blocking periods removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/availability:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Get availability calendar with time slots
+      description: |
+        Returns available time slots for this place.
+        Availability is computed as: All valid time slot intervals
+        MINUS blocking periods (own + inherited from area + building)
+        MINUS existing reservations.
+      operationId: getPlaceAvailability
+      security: []
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Availability slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AvailabilitySlot'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/qrCode:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Generate QR code
+      operationId: getPlaceQrCode
+      parameters:
+        - name: templateId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [png, jpg, pdf]
+            default: png
+        - name: includeDetails
+          in: query
+          description: Details to include (comma-separated)
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [name, areaName, buildingName]
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: QR code image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /places/{placeId}/calendar.ics:
+    parameters:
+      - $ref: '#/components/parameters/PlaceIdParam'
+    get:
+      tags: [Places]
+      summary: Public iCalendar feed for place
+      description: Returns .ics file with blocking periods and reservations (next 3 months)
+      operationId: getPlaceCalendar
+      security: []
+      responses:
+        '200':
+          description: iCalendar feed
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # Reservations
+  # ============================================================================
+  /reservations:
+    get:
+      tags: [Reservations]
+      summary: List reservations
+      operationId: listReservations
+      parameters:
+        - name: userId
+          in: query
+          description: Filter by user (admin only)
+          schema:
+            type: string
+            format: uuid
+        - name: placeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: areaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: buildingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [upcoming, active, past, cancelled]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of reservations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedReservationList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Reservations]
+      summary: Create reservation (single or recurring)
+      description: |
+        Creates a single reservation or multiple recurring reservations.
+        For recurring reservations, provide the recurrence field with pattern details.
+        Start/end times must align with the place's configured time slot intervals.
+        Reservation will fail if any time slot is blocked or already reserved.
+      operationId: createReservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReservationRequest'
+      responses:
+        '201':
+          description: Reservation(s) created
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Reservation'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /reservations/{reservationId}:
+    parameters:
+      - $ref: '#/components/parameters/ReservationIdParam'
+    get:
+      tags: [Reservations]
+      summary: Get reservation details
+      operationId: getReservation
+      responses:
+        '200':
+          description: Reservation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Reservations]
+      summary: Update reservation (extend or shorten duration)
+      description: |
+        Allows modifying the reservation's start and/or end time.
+        Extending is only allowed if the adjacent time slot is not blocked or reserved.
+        Shortening is always allowed within minimum duration constraints.
+        Times must align with the place's configured time slot intervals.
+      operationId: updateReservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReservationRequest'
+      responses:
+        '200':
+          description: Reservation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+    delete:
+      tags: [Reservations]
+      summary: Cancel reservation
+      operationId: cancelReservation
+      responses:
+        '204':
+          description: Reservation cancelled
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservations/{reservationId}/checkIn:
+    parameters:
+      - $ref: '#/components/parameters/ReservationIdParam'
+    post:
+      tags: [Reservations]
+      summary: Check in to reservation
+      operationId: checkInReservation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                qrCode:
+                  type: string
+                  description: Optional QR code for verification
+      responses:
+        '200':
+          description: Check-in successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservations/{reservationId}/share:
+    parameters:
+      - $ref: '#/components/parameters/ReservationIdParam'
+    get:
+      tags: [Reservations]
+      summary: Get shareable reservation link with preview metadata
+      description: |
+        Returns a shareable URL and Open Graph / Twitter Card metadata
+        for rich link previews in chat applications
+      operationId: getReservationShareLink
+      responses:
+        '200':
+          description: Share link and metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservations/export:
+    get:
+      tags: [Reservations]
+      summary: Export reservations as CSV
+      operationId: exportReservations
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: buildingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: areaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================================
+  # Users
+  # ============================================================================
+  /users:
+    get:
+      tags: [Users]
+      summary: List all users
+      operationId: listUsers
+      parameters:
+        - name: search
+          in: query
+          description: Search by email or name
+          schema:
+            type: string
+        - name: groupIds
+          in: query
+          description: Filter by group IDs (comma-separated)
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          style: form
+          explode: false
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, disabled]
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags: [Users]
+      summary: Get user details
+      operationId: getUser
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Users]
+      summary: Update user
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/groups:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags: [Users]
+      summary: Get user's groups
+      operationId: getUserGroups
+      responses:
+        '200':
+          description: User's groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Users]
+      summary: Add groups to user
+      operationId: addUserGroups
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupIds]
+              properties:
+                groupIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Groups added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Users]
+      summary: Remove groups from user
+      operationId: removeUserGroups
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupIds]
+              properties:
+                groupIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Groups removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/disable:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    post:
+      tags: [Users]
+      summary: Disable user account
+      operationId: disableUser
+      responses:
+        '200':
+          description: User disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/enable:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    post:
+      tags: [Users]
+      summary: Re-enable user account
+      operationId: enableUser
+      responses:
+        '200':
+          description: User enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/me/favorites:
+    get:
+      tags: [Users]
+      summary: Get current user's favorite places
+      operationId: getCurrentUserFavorites
+      responses:
+        '200':
+          description: Favorite places
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Place'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Users]
+      summary: Add places to favorites
+      operationId: addCurrentUserFavorites
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [placeIds]
+              properties:
+                placeIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Places added to favorites
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [Users]
+      summary: Remove places from favorites
+      operationId: removeCurrentUserFavorites
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [placeIds]
+              properties:
+                placeIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Places removed from favorites
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/notifications:
+    get:
+      tags: [Users]
+      summary: Get notification preferences
+      operationId: getCurrentUserNotifications
+      responses:
+        '200':
+          description: Notification preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [Users]
+      summary: Update notification preferences
+      operationId: updateCurrentUserNotifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      responses:
+        '200':
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================================
+  # Groups & Permissions
+  # ============================================================================
+  /groups:
+    get:
+      tags: [Groups]
+      summary: List all permission groups
+      operationId: listGroups
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Groups]
+      summary: Create new group
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/GroupIdParam'
+    get:
+      tags: [Groups]
+      summary: Get group details
+      operationId: getGroup
+      responses:
+        '200':
+          description: Group details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupWithMembers'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Groups]
+      summary: Update group
+      operationId: updateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Groups]
+      summary: Delete group (not system/default)
+      operationId: deleteGroup
+      responses:
+        '204':
+          description: Group deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{groupId}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/GroupIdParam'
+    get:
+      tags: [Groups]
+      summary: Get group permissions
+      operationId: getGroupPermissions
+      responses:
+        '200':
+          description: Group permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Groups]
+      summary: Add permissions to group
+      operationId: addGroupPermissions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Permissions added
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Groups]
+      summary: Remove permissions from group
+      operationId: removeGroupPermissions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '204':
+          description: Permissions removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{groupId}/members:
+    parameters:
+      - $ref: '#/components/parameters/GroupIdParam'
+    get:
+      tags: [Groups]
+      summary: Get group members
+      operationId: getGroupMembers
+      responses:
+        '200':
+          description: Group members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/defaultAssignment:
+    get:
+      tags: [Groups]
+      summary: Get default groups for new users
+      operationId: getDefaultGroupAssignment
+      responses:
+        '200':
+          description: Default groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [Groups]
+      summary: Set default groups for new users
+      operationId: setDefaultGroupAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupIds]
+              properties:
+                groupIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Default groups updated
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /permissions:
+    get:
+      tags: [Groups]
+      summary: List all available permissions
+      operationId: listPermissions
+      responses:
+        '200':
+          description: Available permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================================
+  # Equipment
+  # ============================================================================
+  /equipment:
+    get:
+      tags: [Equipment]
+      summary: List all equipment types
+      operationId: listEquipment
+      security: []
+      responses:
+        '200':
+          description: List of equipment types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Equipment'
+
+    post:
+      tags: [Equipment]
+      summary: Create equipment type
+      operationId: createEquipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEquipmentRequest'
+      responses:
+        '201':
+          description: Equipment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Equipment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /equipment/{equipmentId}:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentIdParam'
+    get:
+      tags: [Equipment]
+      summary: Get equipment type details
+      operationId: getEquipment
+      security: []
+      responses:
+        '200':
+          description: Equipment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Equipment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Equipment]
+      summary: Update equipment type
+      operationId: updateEquipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEquipmentRequest'
+      responses:
+        '200':
+          description: Equipment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Equipment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Equipment]
+      summary: Delete equipment type
+      operationId: deleteEquipment
+      responses:
+        '204':
+          description: Equipment deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # Statistics
+  # ============================================================================
+  /statistics:
+    get:
+      tags: [Statistics]
+      summary: Get overall statistics
+      operationId: getStatistics
+      responses:
+        '200':
+          description: Overall statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statistics'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /statistics/usage:
+    get:
+      tags: [Statistics]
+      summary: Get usage statistics over time
+      operationId: getUsageStatistics
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [daily, weekly, monthly, yearly]
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: buildingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: areaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: placeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UsageStatistics'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /statistics/current:
+    get:
+      tags: [Statistics]
+      summary: Get current occupancy
+      operationId: getCurrentOccupancy
+      parameters:
+        - name: buildingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: areaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current occupancy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentOccupancy'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================================
+  # QR Templates
+  # ============================================================================
+  /qrTemplates:
+    get:
+      tags: [QR Templates]
+      summary: List QR code templates
+      operationId: listQrTemplates
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QRTemplate'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [QR Templates]
+      summary: Create QR template
+      operationId: createQrTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQRTemplateRequest'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QRTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /qrTemplates/{templateId}:
+    parameters:
+      - $ref: '#/components/parameters/TemplateIdParam'
+    get:
+      tags: [QR Templates]
+      summary: Get template details
+      operationId: getQrTemplate
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QRTemplate'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [QR Templates]
+      summary: Update template
+      operationId: updateQrTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQRTemplateRequest'
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QRTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [QR Templates]
+      summary: Delete template
+      operationId: deleteQrTemplate
+      responses:
+        '204':
+          description: Template deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /qrTemplates/{templateId}/preview:
+    parameters:
+      - $ref: '#/components/parameters/TemplateIdParam'
+    get:
+      tags: [QR Templates]
+      summary: Preview template with sample data
+      operationId: previewQrTemplate
+      responses:
+        '200':
+          description: Rendered template preview
+          content:
+            text/html:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # API Keys
+  # ============================================================================
+  /apiKeys:
+    get:
+      tags: [API Keys]
+      summary: List user's API keys
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: List of API keys (masked)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/APIKey'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [API Keys]
+      summary: Create new API key
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '201':
+          description: API key created (full key shown only once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyWithSecret'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /apiKeys/{keyId}:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [API Keys]
+      summary: Revoke API key
+      operationId: revokeApiKey
+      responses:
+        '204':
+          description: API key revoked
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # Audit Log
+  # ============================================================================
+  /auditLog:
+    get:
+      tags: [Audit Log]
+      summary: Get audit log entries
+      operationId: getAuditLog
+      parameters:
+        - name: entityType
+          in: query
+          schema:
+            type: string
+            enum: [building, area, place, reservation, user, group]
+        - name: entityId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: query
+          description: Filter by who made the change
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [create, update, delete]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained via OAuth flow
+
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: API key for external integrations
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    LimitParam:
+      name: limit
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    BuildingIdParam:
+      name: buildingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    AreaIdParam:
+      name: areaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    PlaceIdParam:
+      name: placeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ReservationIdParam:
+      name: reservationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    GroupIdParam:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    EquipmentIdParam:
+      name: equipmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request - validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Unauthorized - not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Conflict - overlapping reservation or blocked time slot
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # ============================================================================
+    # Common
+    # ============================================================================
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Invalid input data
+            details:
+              type: object
+              additionalProperties: true
+
+    PaginationMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    TimeRange:
+      type: object
+      required: [startTime, endTime]
+      properties:
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+
+    # ============================================================================
+    # Auth
+    # ============================================================================
+    AuthResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Token expiration in seconds
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ============================================================================
+    # Building
+    # ============================================================================
+    Building:
+      type: object
+      required: [id, name, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateBuildingRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+
+    UpdateBuildingRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+
+    PaginatedBuildingList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Building'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    # ============================================================================
+    # Blocking
+    # ============================================================================
+    Blocking:
+      type: object
+      required: [id, entityType, entityId, blockingType, startTime, endTime, isRecurring, source, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+          enum: [building, area, place]
+        entityId:
+          type: string
+          format: uuid
+        blockingType:
+          type: string
+          enum: [closedHours, weekend, holiday, maintenance, event, disabled, custom]
+        name:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        isRecurring:
+          type: boolean
+        recurrenceRule:
+          type: string
+          nullable: true
+          description: iCal RRULE format
+        recurrenceDuration:
+          type: string
+          nullable: true
+          description: ISO 8601 duration
+        recurrenceEnd:
+          type: string
+          format: date
+          nullable: true
+        source:
+          type: string
+          enum: [own, inheritedFromArea, inheritedFromBuilding]
+          description: Read-only, indicates source of blocking
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateBlockingRequest:
+      type: object
+      required: [blockingType, startTime, endTime]
+      properties:
+        blockingType:
+          type: string
+          enum: [closedHours, weekend, holiday, maintenance, event, disabled, custom]
+        name:
+          type: string
+        reason:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        isRecurring:
+          type: boolean
+          default: false
+        recurrenceRule:
+          type: string
+          description: iCal RRULE format (required if isRecurring=true)
+        recurrenceDuration:
+          type: string
+          description: ISO 8601 duration (required if isRecurring=true)
+        recurrenceEnd:
+          type: string
+          format: date
+
+    # ============================================================================
+    # Area
+    # ============================================================================
+    Area:
+      type: object
+      required: [id, buildingId, name, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        roomPlan:
+          $ref: '#/components/schemas/RoomPlan'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAreaRequest:
+      type: object
+      required: [buildingId, name]
+      properties:
+        buildingId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+
+    UpdateAreaRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+
+    PaginatedAreaList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Area'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    RoomPlan:
+      type: object
+      required: [imageUrl, markers]
+      properties:
+        imageUrl:
+          type: string
+          format: uri
+        markers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceMarker'
+
+    PlaceMarker:
+      type: object
+      required: [id, placeId, x, y, width, height, shape]
+      properties:
+        id:
+          type: string
+          format: uuid
+        placeId:
+          type: string
+          format: uuid
+        x:
+          type: number
+          format: float
+          description: X position as percentage (0-100)
+        y:
+          type: number
+          format: float
+          description: Y position as percentage (0-100)
+        width:
+          type: number
+          format: float
+        height:
+          type: number
+          format: float
+        shape:
+          type: string
+          enum: [rectangle, circle]
+
+    CreatePlaceMarkerRequest:
+      type: object
+      required: [placeId, x, y, width, height, shape]
+      properties:
+        placeId:
+          type: string
+          format: uuid
+        x:
+          type: number
+          format: float
+        y:
+          type: number
+          format: float
+        width:
+          type: number
+          format: float
+        height:
+          type: number
+          format: float
+        shape:
+          type: string
+          enum: [rectangle, circle]
+
+    PlaceAvailability:
+      type: object
+      required: [placeId, placeName, status]
+      properties:
+        placeId:
+          type: string
+          format: uuid
+        placeName:
+          type: string
+        status:
+          type: string
+          enum: [available, partiallyAvailable, fullyBooked, blocked, disabled]
+        nextAvailableSlot:
+          type: string
+          format: date-time
+          nullable: true
+        blockedReason:
+          type: string
+          nullable: true
+        blockedSource:
+          type: string
+          enum: [place, area, building]
+          nullable: true
+
+    # ============================================================================
+    # Place
+    # ============================================================================
+    Place:
+      type: object
+      required: [id, areaId, name, capacity, isBookable, bookingMethod, isDisabled, requiresCheckIn, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        areaId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        capacity:
+          type: integer
+          minimum: 1
+        isBookable:
+          type: boolean
+        bookingMethod:
+          type: string
+          enum: [selfService, manual]
+        isDisabled:
+          type: boolean
+        requiresCheckIn:
+          type: boolean
+        equipment:
+          type: array
+          items:
+            $ref: '#/components/schemas/Equipment'
+        constraints:
+          $ref: '#/components/schemas/PlaceConstraints'
+        timeSlotConfig:
+          $ref: '#/components/schemas/TimeSlotConfig'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePlaceRequest:
+      type: object
+      required: [areaId, name]
+      properties:
+        areaId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+        capacity:
+          type: integer
+          minimum: 1
+          default: 1
+        isBookable:
+          type: boolean
+          default: true
+        bookingMethod:
+          type: string
+          enum: [selfService, manual]
+          default: selfService
+        requiresCheckIn:
+          type: boolean
+          default: false
+
+    UpdatePlaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+        capacity:
+          type: integer
+          minimum: 1
+        isBookable:
+          type: boolean
+        bookingMethod:
+          type: string
+          enum: [selfService, manual]
+        isDisabled:
+          type: boolean
+        requiresCheckIn:
+          type: boolean
+
+    PaginatedPlaceList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Place'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PlaceConstraints:
+      type: object
+      properties:
+        maxReservationDuration:
+          type: string
+          nullable: true
+          description: ISO 8601 duration
+        minReservationDuration:
+          type: string
+          nullable: true
+          description: ISO 8601 duration
+        maxReservationsPerDay:
+          type: integer
+          nullable: true
+        maxReservationsPerWeek:
+          type: integer
+          nullable: true
+        maxReservationsPerMonth:
+          type: integer
+          nullable: true
+        maxReservationsPerYear:
+          type: integer
+          nullable: true
+        maxHoursPerDay:
+          type: integer
+          nullable: true
+        maxHoursPerWeek:
+          type: integer
+          nullable: true
+        maxHoursPerMonth:
+          type: integer
+          nullable: true
+        maxHoursPerYear:
+          type: integer
+          nullable: true
+        maxConcurrentReservations:
+          type: integer
+          nullable: true
+        maxAdvanceBookingDays:
+          type: integer
+          nullable: true
+        checkInTimeoutMinutes:
+          type: integer
+          nullable: true
+        decayTimeoutMinutes:
+          type: integer
+          nullable: true
+        whitelistEnabled:
+          type: boolean
+          default: false
+
+    TimeSlotConfig:
+      type: object
+      required: [intervalMinutes]
+      properties:
+        intervalMinutes:
+          type: integer
+          minimum: 5
+          description: Booking grid interval (e.g., 15, 30, 60)
+        earliestStartTime:
+          type: string
+          format: time
+          nullable: true
+          description: Earliest valid booking start time (e.g., "08:00")
+        latestEndTime:
+          type: string
+          format: time
+          nullable: true
+          description: Latest valid booking end time (e.g., "20:00")
+
+    AvailabilitySlot:
+      type: object
+      required: [startTime, endTime, status]
+      properties:
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [available, blocked, reserved]
+        blockingReason:
+          type: string
+          nullable: true
+        blockingSource:
+          type: string
+          enum: [place, area, building]
+          nullable: true
+        reservationId:
+          type: string
+          format: uuid
+          nullable: true
+
+    # ============================================================================
+    # Reservation
+    # ============================================================================
+    Reservation:
+      type: object
+      required: [id, placeId, userId, startTime, endTime, status, isRecurring, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        placeId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, confirmed, checkedIn, completed, cancelled, expired]
+        checkInTime:
+          type: string
+          format: date-time
+          nullable: true
+        cancelReason:
+          type: string
+          nullable: true
+        isRecurring:
+          type: boolean
+        recurringGroupId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateReservationRequest:
+      type: object
+      required: [placeId, startTime, endTime]
+      properties:
+        placeId:
+          type: string
+          format: uuid
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        recurrence:
+          type: object
+          properties:
+            pattern:
+              type: string
+              enum: [daily, weekly, biweekly, monthly]
+            endDate:
+              type: string
+              format: date
+            daysOfWeek:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 6
+              description: Days of week (0=Sunday, 6=Saturday) for weekly patterns
+
+    UpdateReservationRequest:
+      type: object
+      properties:
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+
+    PaginatedReservationList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reservation'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ShareResponse:
+      type: object
+      required: [shareUrl, previewMetadata]
+      properties:
+        shareUrl:
+          type: string
+          format: uri
+        previewMetadata:
+          type: object
+          required: [title, description, siteName]
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            image:
+              type: string
+              format: uri
+            siteName:
+              type: string
+
+    # ============================================================================
+    # User
+    # ============================================================================
+    User:
+      type: object
+      required: [id, email, username, name, oauthProvider, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        name:
+          type: string
+        profilePicture:
+          type: string
+          format: uri
+        oauthProvider:
+          type: string
+          example: gitlab
+        oauthId:
+          type: string
+        isActive:
+          type: boolean
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/Group'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserReference:
+      type: object
+      required: [id, email, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    PaginatedUserList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    NotificationPreferences:
+      type: object
+      properties:
+        reservationConfirmed:
+          type: boolean
+          default: true
+        reservationCancelled:
+          type: boolean
+          default: true
+        reservationReminder:
+          type: boolean
+          default: true
+        reminderMinutesBefore:
+          type: integer
+          minimum: 5
+          default: 15
+        checkInWarning:
+          type: boolean
+          default: true
+
+    # ============================================================================
+    # Group & Permission
+    # ============================================================================
+    Group:
+      type: object
+      required: [id, name, isSystem, isDefault, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        isSystem:
+          type: boolean
+          description: True for immutable "system" group
+        isDefault:
+          type: boolean
+          description: True for editable "default" group
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    GroupWithMembers:
+      allOf:
+        - $ref: '#/components/schemas/Group'
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserReference'
+
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+
+    Permission:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          example: manage:buildings
+        description:
+          type: string
+          example: Create, update, and delete buildings
+
+    # ============================================================================
+    # Equipment
+    # ============================================================================
+    Equipment:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+
+    CreateEquipmentRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        icon:
+          type: string
+        description:
+          type: string
+
+    UpdateEquipmentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        icon:
+          type: string
+        description:
+          type: string
+
+    # ============================================================================
+    # Statistics
+    # ============================================================================
+    Statistics:
+      type: object
+      properties:
+        totalBuildings:
+          type: integer
+        totalAreas:
+          type: integer
+        totalPlaces:
+          type: integer
+        totalReservations:
+          type: integer
+        totalUsers:
+          type: integer
+        currentActiveReservations:
+          type: integer
+        currentCheckedIn:
+          type: integer
+
+    UsageStatistics:
+      type: object
+      required: [period, startDate, endDate]
+      properties:
+        period:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        reservationCount:
+          type: integer
+        checkInCount:
+          type: integer
+        uniqueUsers:
+          type: integer
+        averageOccupancy:
+          type: number
+          format: float
+        peakOccupancy:
+          type: number
+          format: float
+
+    CurrentOccupancy:
+      type: object
+      properties:
+        totalPlaces:
+          type: integer
+        occupiedPlaces:
+          type: integer
+        availablePlaces:
+          type: integer
+        occupancyRate:
+          type: number
+          format: float
+        checkedInCount:
+          type: integer
+
+    # ============================================================================
+    # QR Template
+    # ============================================================================
+    QRTemplate:
+      type: object
+      required: [id, name, htmlTemplate, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        htmlTemplate:
+          type: string
+          description: HTML template with placeholders
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateQRTemplateRequest:
+      type: object
+      required: [name, htmlTemplate]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        htmlTemplate:
+          type: string
+
+    UpdateQRTemplateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        htmlTemplate:
+          type: string
+
+    # ============================================================================
+    # API Key
+    # ============================================================================
+    APIKey:
+      type: object
+      required: [id, name, keyPrefix, permissions, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        keyPrefix:
+          type: string
+          description: First 8 characters for identification
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Inherited from creating user
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    APIKeyWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/APIKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: Full API key (only shown once at creation)
+
+    CreateAPIKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        expiresAt:
+          type: string
+          format: date-time
+
+    # ============================================================================
+    # Audit Log
+    # ============================================================================
+    AuditLogEntry:
+      type: object
+      required: [id, entityType, entityId, action, userId, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+          enum: [building, area, place, reservation, user, group]
+        entityId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [create, update, delete]
+        userId:
+          type: string
+          format: uuid
+        changes:
+          type: object
+          additionalProperties: true
+          description: Before/after values for updates
+        timestamp:
+          type: string
+          format: date-time
+
+    PaginatedAuditLogList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'

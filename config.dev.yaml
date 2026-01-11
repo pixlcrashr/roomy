@@ -1,0 +1,5 @@
+server:
+  address: "127.0.0.1:8080"
+
+database:
+  url: "postgres://roomy:roomy@127.0.0.1:5796/roomy?sslmode=disable"
