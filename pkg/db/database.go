@@ -21,6 +21,17 @@ func Connect(dsn string) (*gorm.DB, error) {
 
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
-		&model.Example{},
+		&model.Building{},
+		&model.Area{},
+		&model.Place{},
+		&model.PlaceMarker{},
+		&model.Blocking{},
+		&model.Reservation{},
+		&model.User{},
+		&model.Group{},
+		&model.Equipment{},
+		&model.APIKey{},
+		&model.AuditLogEntry{},
+		&model.QRTemplate{},
 	)
 }

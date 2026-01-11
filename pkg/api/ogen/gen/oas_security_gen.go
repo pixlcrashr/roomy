@@ -122,7 +122,7 @@ var operationRolesApiKeyAuth = map[string][]string{
 
 func (s *Server) securityApiKeyAuth(ctx context.Context, operationName OperationName, req *http.Request) (context.Context, bool, error) {
 	var t ApiKeyAuth
-	const parameterName = "X-API-Key"
+	const parameterName = "X-Api-Key"
 	value := req.Header.Get(parameterName)
 	if value == "" {
 		return ctx, false, nil
@@ -254,7 +254,7 @@ func (s *Client) securityApiKeyAuth(ctx context.Context, operationName Operation
 	if err != nil {
 		return errors.Wrap(err, "security source \"ApiKeyAuth\"")
 	}
-	req.Header.Set("X-API-Key", t.APIKey)
+	req.Header.Set("X-Api-Key", t.APIKey)
 	return nil
 }
 func (s *Client) securityBearerAuth(ctx context.Context, operationName OperationName, req *http.Request) error {

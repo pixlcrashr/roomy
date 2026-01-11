@@ -13,6 +13,17 @@ var _ = genconfig.Config{
 
 	// Include all the query interfaces defined in this package
 	IncludeInterfaces: []any{
-		ExampleQuery(nil),
+		BuildingQuery(nil),
+		AreaQuery(nil),
+		PlaceQuery(nil),
+		PlaceMarkerQuery(nil),
+		BlockingQuery(nil),
+		ReservationQuery(nil),
+		UserQuery(nil),
+		GroupQuery(nil),
+		EquipmentQuery(nil),
+		APIKeyQuery(nil),
+		QRTemplateQuery(nil),
+		AuditLogQuery(nil),
 	},
 }
